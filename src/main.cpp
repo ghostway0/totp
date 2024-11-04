@@ -1,10 +1,10 @@
 #include <filesystem>
 #include <iostream>
+#include <span>
 #include <string>
 #include <termios.h>
 #include <unistd.h>
 #include <vector>
-#include <span>
 
 #include "absl/flags/usage.h"
 #include <absl/flags/flag.h>
@@ -506,14 +506,14 @@ int main(int argc, char *argv[]) {
         std::cout << absl::ProgramUsageMessage() << "\n\n";
         std::cout << "Usage: totp [options]\n"
                      "Options:\n"
-                     "  -d, --decrypt seed\n"
-                     "  -h, --help print help message\n"
-                     "  -n, --new generate new seed\n"
-                     "  -p, --profile profile name\n"
-                     "  -g, --generate OTBs\n"
-                     "  -c, --config configuration file\n"
-                     "  -o, --output output file\n"
-                     "  --name name of the seed to retrieve\n";
+                     "  -h, --help\t\tPrint this message\n"
+                     "  -d, --decrypt\t\tDecrypt seed of profile\n"
+                     "  -n, --new\t\tGenerate new seed\n"
+                     "  -g, --generate\tGenerate TOTP with num bytes\n"
+                     "  -o, --output\t\tOutput file\n"
+                     "  -c, --config\t\tConfiguration file path\n"
+                     "  -p, --profile\t\tProfile name\n"
+                     "  -f, --format\t\tOutput format\n";
         return argc == 1 ? -1 : 0;
     }
 
