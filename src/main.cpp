@@ -22,6 +22,8 @@
 
 constexpr size_t kDefaultSaltSize = 32;
 constexpr size_t kDefaultSeedSize = 32;
+std::string const kTimeFormat = "%Y-%m-%d %H:%M:%S";
+std::string const kConfigPath = "~/.config/totp/config.toml";
 
 enum class AlgorithmType {
     RFC6238,
@@ -255,12 +257,13 @@ std::vector<uint8_t> hmac_sha256(
 
 std::vector<uint8_t> generate_totp_hmac_sha256(std::vector<uint8_t> const &seed,
         size_t num_bytes,
-        absl::Duration const &interval) {
-    uint64_t time =
-            absl::ToUnixSeconds(absl::Now()) / absl::ToDoubleSeconds(interval);
-    std::vector<uint8_t> time_bytes(sizeof(time));
-    std::copy_n(reinterpret_cast<uint8_t *>(&time),
-            sizeof(time),
+        absl::Time time,
+        absl::Duration interval) {
+    uint64_t timestep =
+            absl::ToUnixSeconds(time) / absl::ToDoubleSeconds(interval);
+    std::vector<uint8_t> time_bytes(sizeof(timestep));
+    std::copy_n(reinterpret_cast<uint8_t *>(&timestep),
+            sizeof(timestep),
             time_bytes.begin());
 
     std::vector<uint8_t> output(num_bytes);
@@ -305,7 +308,7 @@ absl::StatusOr<std::vector<uint8_t>> decrypt_seed(
     }
 
     if (crc32(seed) != config.crc) {
-        return absl::InternalError("CRC mismatch");
+        return absl::InvalidArgumentError("CRC mismatch");
     }
 
     return seed;
@@ -488,13 +491,10 @@ ABSL_FLAG_ALIAS(bool, n, new);
 ABSL_FLAG(uint32_t, generate, 8, "[num bytes] Generate TOTP with num bytes");
 ABSL_FLAG_ALIAS(uint32_t, g, generate);
 
-ABSL_FLAG(std::string, output, "~/.config/totp/config.toml", "Output file");
+ABSL_FLAG(std::string, output, kConfigPath, "Output file");
 ABSL_FLAG_ALIAS(std::string, o, output);
 
-ABSL_FLAG(std::string,
-        config,
-        "~/.config/totp/config.toml",
-        "Configuration file path");
+ABSL_FLAG(std::string, config, kConfigPath, "Configuration file path");
 ABSL_FLAG_ALIAS(std::string, c, config);
 
 ABSL_FLAG(std::string, profile, "", "Profile name");
@@ -502,6 +502,9 @@ ABSL_FLAG_ALIAS(std::string, p, profile);
 
 ABSL_FLAG(std::string, format, "hex", "Output format");
 ABSL_FLAG_ALIAS(std::string, f, format);
+
+ABSL_FLAG(std::string, time, "", "Set time for TOTP generation");
+ABSL_FLAG_ALIAS(std::string, t, time);
 
 int main(int argc, char *argv[]) {
     absl::InitializeLog();
@@ -519,6 +522,7 @@ int main(int argc, char *argv[]) {
     ALIAS_ABSL_FLAG(config, c);
     ALIAS_ABSL_FLAG(profile, p);
     ALIAS_ABSL_FLAG(format, f);
+    ALIAS_ABSL_FLAG(time, t);
 
     std::string config_path = expand_path(absl::GetFlag(FLAGS_config));
 
@@ -538,7 +542,8 @@ int main(int argc, char *argv[]) {
                    "  -c, --config      Configuration file path\n"
                    "  -p, --profile     Profile name (required for --decrypt "
                    "and --generate)\n"
-                   "  -f, --format      Output format (choices: hex, base64)\n";
+                   "  -f, --format      Output format (choices: hex, base64)\n"
+                   "  -t, --time        Set time for TOTP generation (UTC)\n";
         return argc == 1 ? -1 : 0;
     }
 
@@ -600,6 +605,18 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    absl::Time time = absl::Now();
+
+    if (!absl::GetFlag(FLAGS_time).empty()) {
+        std::string error;
+        std::string time_str = absl::GetFlag(FLAGS_time);
+        if (!absl::ParseTime(
+                    kTimeFormat, absl::GetFlag(FLAGS_time), &time, &error)) {
+            LOG(ERROR) << "Invalid time";
+            return -1;
+        }
+    }
+
     if (absl::GetFlag(FLAGS_generate) > 0) {
         std::string profile_name = absl::GetFlag(FLAGS_profile);
 
@@ -628,7 +645,7 @@ int main(int argc, char *argv[]) {
         }
 
         std::vector<uint8_t> bytes = generate_totp_hmac_sha256(
-                *seed, absl::GetFlag(FLAGS_generate), config->interval);
+                *seed, absl::GetFlag(FLAGS_generate), time, config->interval);
 
         print_bytes(bytes, output_format, std::cout);
 
