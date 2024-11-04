@@ -409,10 +409,25 @@ absl::StatusOr<TOTPConfig> load_config(
     return config;
 }
 
+std::string expand_path(std::string const &path) {
+    if (path.empty() || path[0] != '~') {
+        return path;
+    }
+
+    char const *home = std::getenv("HOME");
+    if (home == nullptr) {
+        return path;
+    }
+
+    return std::string(home) + path.substr(1);
+}
+
 void write_config(TOTPConfig const &config, std::string const &filename) {
     if (!std::filesystem::exists(filename)) {
+        std::filesystem::create_directories(
+                std::filesystem::path(filename).parent_path());
+
         std::ofstream file(filename);
-        file << toml::table{};
     } else if (!std::filesystem::is_regular_file(filename)) {
         LOG(ERROR) << "Invalid file";
         return;
@@ -473,10 +488,13 @@ ABSL_FLAG_ALIAS(bool, n, new);
 ABSL_FLAG(uint32_t, generate, 8, "[num bytes] Generate TOTP with num bytes");
 ABSL_FLAG_ALIAS(uint32_t, g, generate);
 
-ABSL_FLAG(std::string, output, "config-otb.toml", "Output file");
+ABSL_FLAG(std::string, output, "~/.config/totp/config.toml", "Output file");
 ABSL_FLAG_ALIAS(std::string, o, output);
 
-ABSL_FLAG(std::string, config, "config-otb.toml", "Configuration file path");
+ABSL_FLAG(std::string,
+        config,
+        "~/.config/totp/config.toml",
+        "Configuration file path");
 ABSL_FLAG_ALIAS(std::string, c, config);
 
 ABSL_FLAG(std::string, profile, "", "Profile name");
@@ -502,18 +520,25 @@ int main(int argc, char *argv[]) {
     ALIAS_ABSL_FLAG(profile, p);
     ALIAS_ABSL_FLAG(format, f);
 
+    std::string config_path = expand_path(absl::GetFlag(FLAGS_config));
+
     if (argc == 1 || absl::GetFlag(FLAGS_help)) {
         std::cout << absl::ProgramUsageMessage() << "\n\n";
-        std::cout << "Usage: totp [options]\n"
-                     "Options:\n"
-                     "  -h, --help\t\tPrint this message\n"
-                     "  -d, --decrypt\t\tDecrypt seed of profile\n"
-                     "  -n, --new\t\tGenerate new seed\n"
-                     "  -g, --generate\tGenerate TOTP with num bytes\n"
-                     "  -o, --output\t\tOutput file\n"
-                     "  -c, --config\t\tConfiguration file path\n"
-                     "  -p, --profile\t\tProfile name\n"
-                     "  -f, --format\t\tOutput format\n";
+        std::cout
+                << "Usage: totp [options]\n"
+                   "Options:\n"
+                   "  -h, --help        Print this message\n"
+                   "  -d, --decrypt     Decrypt the seed of a specified "
+                   "profile\n"
+                   "  -n, --new         Generate a new seed interactively "
+                   "(optional: --output)\n"
+                   "  -g, --generate    Generate TOTP with specified byte "
+                   "length (requires --profile)\n"
+                   "  -o, --output      Output file (used with --new)\n"
+                   "  -c, --config      Configuration file path\n"
+                   "  -p, --profile     Profile name (required for --decrypt "
+                   "and --generate)\n"
+                   "  -f, --format      Output format (choices: hex, base64)\n";
         return argc == 1 ? -1 : 0;
     }
 
@@ -533,8 +558,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (absl::GetFlag(FLAGS_decrypt) != "") {
-        absl::StatusOr<TOTPConfig> config = load_config(
-                absl::GetFlag(FLAGS_config), absl::GetFlag(FLAGS_decrypt));
+        absl::StatusOr<TOTPConfig> config =
+                load_config(config_path, absl::GetFlag(FLAGS_decrypt));
 
         if (!config.ok()) {
             LOG(ERROR) << config.status();
@@ -561,6 +586,8 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    std::string output_path = expand_path(absl::GetFlag(FLAGS_output));
+
     if (absl::GetFlag(FLAGS_new)) {
         auto config = build_config_interactive(output_format);
         if (!config.ok()) {
@@ -568,7 +595,7 @@ int main(int argc, char *argv[]) {
             return -1;
         }
 
-        write_config(*config, absl::GetFlag(FLAGS_output));
+        write_config(*config, output_path);
 
         return 0;
     }
@@ -582,7 +609,7 @@ int main(int argc, char *argv[]) {
         }
 
         absl::StatusOr<TOTPConfig> config =
-                load_config(absl::GetFlag(FLAGS_config), profile_name);
+                load_config(config_path, profile_name);
         if (!config.ok()) {
             LOG(ERROR) << config.status();
             return -1;
